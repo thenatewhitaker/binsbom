@@ -56,3 +56,9 @@ binsbom scan /path/to/dir --out sbom.json --format cyclonedx-json
 - Scans binaries for embedded Go module strings (similar to `go version -m` output).
 - Adds each module as a dependency with purl `pkg:golang/<module>@<version>`.
 - Stores light evidence under `go_build_info` (main module path and count).
+
+
+## SPDX 3.0 JSON output
+- Emit an SPDX document with **packages**, **files**, and **relationships** (DESCRIBES, DEPENDS_ON, CONTAINS).
+- Usage: `binsbom scan <path> --format spdx-json -o sbom.spdx.json`
+- Notes: IDs are deterministic from content where possible; `purl` appears in `externalRefs`.
