@@ -1,0 +1,2 @@
+[console_scripts]
+binsbom = binsbom.cli:main
