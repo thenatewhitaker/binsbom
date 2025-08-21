@@ -1,19 +1,19 @@
-# binsbom (starter)
+# binsbom
 
-A tiny, pluggable binary scanner that emits an **SBOM** (CycloneDX JSON by default). Designed as a teaching/research scaffold you can extend in Python.
+A tiny, pluggable binary scanner that emits an **SBOM** (CycloneDX JSON by default).
 
-## Features (MVP)
+## MVP Features
 
 - Walk a file or directory and identify file types by magic bytes:
-  - ELF / PE / Mach-O binaries (basic info)
-  - JAR/WAR/EAR (reads MANIFEST and Maven `pom.properties`)
+  - ELF / PE / Mach-O binaries
+  - JAR/WAR/EAR (reads MANIFEST + Maven `pom.properties` → name/version/purl)
 - Compute SHA-256 file hashes
 - Emit **CycloneDX JSON** SBOM using `cyclonedx-python-lib`
-- Optional deep parsing:
-  - **ELF / Mach-O** via `lief` or `pyelftools`
-  - **PE** via `pefile`
 
-> This starter focuses on structure. You’ll expand detectors to extract **dependencies** (DT_NEEDED, imports, LC_LOAD_DYLIB, etc.), and attach them as components with `dependsOn` relationships.
+## Dependencies graph
+
+- The ELF detector uses **LIEF** to extract `DT_NEEDED` and emits dependency edges in CycloneDX.
+- Try on Linux: `binsbom scan /bin -o sbom.json` and inspect `dependencies`.
 
 ## Install
 
@@ -27,19 +27,9 @@ pip install -e .
 
 ```bash
 binsbom scan /path/to/dir --out sbom.json --format cyclonedx-json
-# or a single file
-binsbom scan /bin/ls -o ls-sbom.json
 ```
 
-## Roadmap ideas
+## Notes
 
-- Parse ELF `.dynamic` (DT_NEEDED), `.note.gnu.build-id` (build-id)
-- Parse PE import table + VERSIONINFO
-- Parse Mach-O LC_LOAD_DYLIB
-- Extract Go build-info; enrich with module versions
-- Emit SPDX 3.0 in addition to CycloneDX
-- Add evidence + confidence scores per component
-- Support container images / firmware (binwalk) as inputs
-- VEX emission (OpenVEX / CycloneDX / CSAF)
-
-MIT License.
+- If `lief` is not installed or parsing fails, the ELF detector falls back gracefully.
+- Extend PE/Mach-O similarly to attach imports and `LC_LOAD_DYLIB` data.

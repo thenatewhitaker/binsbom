@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-import pathlib, hashlib, zipfile, io
+import pathlib, hashlib
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from .detectors.core import sniff_type, FileType
@@ -28,14 +28,14 @@ class Scanner:
         pass
 
     def scan_path(self, path: pathlib.Path) -> List[ComponentFinding]:
-            findings: List[ComponentFinding] = []
-            if path.is_file():
-                findings.extend(self._scan_file(path))
-            else:
-                for p in path.rglob("*"):
-                    if p.is_file():
-                        findings.extend(self._scan_file(p))
-            return findings
+        findings: List[ComponentFinding] = []
+        if path.is_file():
+            findings.extend(self._scan_file(path))
+        else:
+            for p in path.rglob("*"):
+                if p.is_file():
+                    findings.extend(self._scan_file(p))
+        return findings
 
     def _sha256(self, p: pathlib.Path) -> str:
         h = hashlib.sha256()
@@ -79,7 +79,6 @@ class Scanner:
                 findings.append(mf)
 
         else:
-            # generic file as a "file" component (optional; comment out if you prefer strict)
             findings.append(ComponentFinding(
                 name=p.name, version=None, type="file", **common
             ))

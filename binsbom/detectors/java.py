@@ -1,15 +1,10 @@
 
 from __future__ import annotations
-import pathlib, io, zipfile, configparser
+import pathlib, zipfile
 from typing import Optional
 from ..scanner import ComponentFinding
 
 def detect_java_component(p: pathlib.Path, **common) -> Optional[ComponentFinding]:
-    """
-    Extract JAR metadata:
-    - META-INF/MANIFEST.MF (Implementation-Title, Implementation-Version, Implementation-Vendor)
-    - META-INF/maven/<group>/<artifact>/pom.properties (groupId, artifactId, version)
-    """
     name = p.name
     version = None
     supplier = None
@@ -33,14 +28,12 @@ def detect_java_component(p: pathlib.Path, **common) -> Optional[ComponentFindin
             except KeyError:
                 pass
 
-            # Maven GAV (preferred)
-            # Look for any pom.properties files
+            # Maven pom.properties
             maven_props = [n for n in z.namelist() if n.lower().startswith("meta-inf/maven/") and n.lower().endswith("pom.properties")]
             for prop_path in maven_props:
                 with z.open(prop_path) as pf:
                     text = pf.read().decode("utf-8", errors="replace")
                     evidence["pom.properties"] = text
-                    # simple parse
                     props = {}
                     for line in text.splitlines():
                         if "=" in line and not line.strip().startswith("#"):

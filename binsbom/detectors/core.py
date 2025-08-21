@@ -17,11 +17,11 @@ def sniff_type(p: pathlib.Path) -> str:
     if header.startswith(b"\x7fELF"):
         return FileType.ELF
 
-    # PE magic (MZ, with later PE\0\0, but we only need MZ for quick sniff)
+    # PE magic (MZ)
     if header.startswith(b"MZ"):
         return FileType.PE
 
-    # Mach-O magic numbers (fat and thin)
+    # Mach-O (fat & thin)
     machos = {
         0xFEEDFACE, 0xFEEDFACF, 0xCAFEBABE, 0xCAFED00D,
         0xCEFAEDFE, 0xCFFAEDFE, 0xBEBAFECA, 0xD00DFECA
@@ -31,9 +31,8 @@ def sniff_type(p: pathlib.Path) -> str:
         if mnum in machos:
             return FileType.MACHO
 
-    # ZIP (possible JAR/WAR/EAR)
+    # ZIP/JAR
     if header.startswith(b"PK\x03\x04"):
-        # We will treat any ZIP with META-INF/MANIFEST.MF as JAR-like
         try:
             import zipfile
             with zipfile.ZipFile(p, "r") as z:
