@@ -1,0 +1,65 @@
+{
+  "msvcrt.dll": {
+    "purl": "pkg:generic/microsoft/msvcrt"
+  },
+  "ucrtbase.dll": {
+    "purl": "pkg:generic/microsoft/ucrt"
+  },
+  "vcruntime140.dll": {
+    "purl": "pkg:generic/microsoft/vcruntime@14"
+  },
+  "vcruntime140_1.dll": {
+    "purl": "pkg:generic/microsoft/vcruntime@14.1"
+  },
+  "msvcp140.dll": {
+    "purl": "pkg:generic/microsoft/msvcp@14"
+  },
+  "msvcp140_1.dll": {
+    "purl": "pkg:generic/microsoft/msvcp@14.1"
+  },
+  "concrt140.dll": {
+    "purl": "pkg:generic/microsoft/concrt@14"
+  },
+  "libcrypto-3-x64.dll": {
+    "purl": "pkg:generic/openssl/libcrypto@3"
+  },
+  "libssl-3-x64.dll": {
+    "purl": "pkg:generic/openssl/libssl@3"
+  },
+  "libcrypto-1_1-x64.dll": {
+    "purl": "pkg:generic/openssl/libcrypto@1.1"
+  },
+  "libssl-1_1-x64.dll": {
+    "purl": "pkg:generic/openssl/libssl@1.1"
+  },
+  "zlib1.dll": {
+    "purl": "pkg:generic/zlib"
+  },
+  "libcurl.dll": {
+    "purl": "pkg:generic/curl"
+  },
+  "libcurl-x64.dll": {
+    "purl": "pkg:generic/curl"
+  },
+  "sqlite3.dll": {
+    "purl": "pkg:generic/sqlite"
+  },
+  "libpng16-16.dll": {
+    "purl": "pkg:generic/libpng@1.6"
+  },
+  "libjpeg-turbo-62.dll": {
+    "purl": "pkg:generic/libjpeg-turbo@2.1"
+  },
+  "qt5core.dll": {
+    "purl": "pkg:generic/qt/qtbase@5"
+  },
+  "qt6core.dll": {
+    "purl": "pkg:generic/qt/qtbase@6"
+  },
+  "qt5gui.dll": {
+    "purl": "pkg:generic/qt/qtbase@5"
+  },
+  "qt6gui.dll": {
+    "purl": "pkg:generic/qt/qtbase@6"
+  }
+}
