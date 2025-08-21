@@ -12,7 +12,7 @@ def main() -> None:
     p_scan = sub.add_parser("scan", help="Scan a file or directory")
     p_scan.add_argument("path", type=str, help="File or directory to scan")
     p_scan.add_argument("-o", "--out", type=str, default="-", help="Output file (default: stdout)")
-    p_scan.add_argument("--format", choices=["cyclonedx-json"], default="cyclonedx-json", help="SBOM format")
+    p_scan.add_argument("--format", choices=["cyclonedx-json", "spdx-json"], default="cyclonedx-json", help="SBOM format")
 
     args = parser.parse_args()
     if args.cmd == "scan":

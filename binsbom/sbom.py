@@ -1,6 +1,6 @@
 
 from __future__ import annotations
-import json, datetime, uuid
+import json, datetime, uuid, hashlib
 from typing import List, Dict, Any, Tuple
 from .scanner import ComponentFinding
 
@@ -22,6 +22,8 @@ class BomWriter:
                 return self._write_cdx(findings, root)
             except Exception:
                 return self._write_cdx_min(findings, root)
+        elif self.format in ("spdx-json",):
+            return self._write_spdx(findings, root)
         else:
             raise ValueError(f"Unsupported format: {self.format}")
 
@@ -121,3 +123,138 @@ class BomWriter:
         for parent_ref, child_refs in deps_edges:
             bom["dependencies"].append({"ref": parent_ref, "dependsOn": child_refs})
         return json.dumps(bom, indent=2)
+
+    def _write_spdx(self, findings: List[ComponentFinding], root: str) -> str:
+        """
+        SPDX 3.0-ish JSON writer (packages, files, relationships).
+        - Generates SPDXRef IDs deterministically from SHA-256 where possible.
+        - Adds packages for each component (root binaries and dependencies).
+        - Adds files for each scanned file and CONTAINS relationships.
+        - Adds DEPENDS_ON edges based on evidence-derived dependencies.
+        """
+        import uuid, datetime
+
+        # Reuse the same component/dependency build logic
+        comps, deps_edges = self._collect_components_and_deps(findings)
+
+        # Helpers for IDs
+        def file_spdxid(sha256: str) -> str:
+            return f"SPDXRef-File-{sha256[:16]}" if sha256 else f"SPDXRef-File-{uuid.uuid4().hex[:16]}"
+
+        def pkg_spdxid(name: str, version: str | None, bom_ref: str | None = None) -> str:
+            key = (bom_ref or f"{name}@{version}") if version else (bom_ref or name)
+            sid = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+            return f"SPDXRef-Package-{sid}"
+
+        # Build packages / map bom_ref -> pkg SPDXID
+        packages = []
+        pkg_id_map = {}
+        for ref, c in comps.items():
+            pid = pkg_spdxid(c["name"], c["version"], bom_ref=ref)
+            pkg_id_map[ref] = pid
+            pkg = {
+                "SPDXID": pid,
+                "name": c["name"],
+                "downloadLocation": "NOASSERTION",
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "NOASSERTION",
+            }
+            if c.get("version"):
+                pkg["versionInfo"] = c["version"]
+            # ExternalRefs: purl
+            if c.get("purl"):
+                pkg["externalRefs"] = [{
+                    "referenceCategory": "PACKAGE-MANAGER",
+                    "referenceType": "purl",
+                    "referenceLocator": c["purl"]
+                }]
+            # Checksums (if any; usually for root files)
+            checks = []
+            for h in c.get("hashes", []):
+                if h.get("alg") == "SHA-256" and h.get("content"):
+                    checks.append({"algorithm": "SHA256", "checksumValue": h["content"]})
+            if checks:
+                pkg["checksums"] = checks
+            packages.append(pkg)
+
+        # Build files for each real scanned file (only from findings)
+        files = []
+        file_relationships = []
+        for f in findings:
+            sha256 = f.hashes.get("SHA-256", "")
+            fid = file_spdxid(sha256)
+            path = f.path or f.name
+            file_entry = {
+                "SPDXID": fid,
+                "fileName": path,
+                "fileTypes": ["BINARY"],
+                "checksums": []
+            }
+            if sha256:
+                file_entry["checksums"].append({"algorithm": "SHA256", "checksumValue": sha256})
+            files.append(file_entry)
+            # Package CONTAINS File
+            # Find the package that corresponds to this finding (by bom_ref)
+            pref = f.bom_ref
+            if not pref:
+                pref = f"urn:sha256:{sha256}"
+            pkg_id = pkg_id_map.get(pref)
+            if pkg_id:
+                file_relationships.append({
+                    "spdxElementId": pkg_id,
+                    "relationshipType": "CONTAINS",
+                    "relatedSpdxElement": fid
+                })
+
+        # Relationships: DOCUMENT DESCRIBES each top-level package (the "root" findings)
+        relationships = []
+        doc_spdxid = "SPDXRef-DOCUMENT"
+
+        # Consider every finding's package as described by the document
+        seen_doc_desc = set()
+        for f in findings:
+            pref = f.bom_ref or f"urn:sha256:{f.hashes.get('SHA-256','')}"
+            pkg_id = pkg_id_map.get(pref)
+            if pkg_id and pkg_id not in seen_doc_desc:
+                relationships.append({
+                    "spdxElementId": doc_spdxid,
+                    "relationshipType": "DESCRIBES",
+                    "relatedSpdxElement": pkg_id
+                })
+                seen_doc_desc.add(pkg_id)
+
+        # Dependency relationships
+        for parent_ref, child_refs in deps_edges:
+            parent_id = pkg_id_map.get(parent_ref)
+            if not parent_id:
+                continue
+            for cr in child_refs:
+                child_id = pkg_id_map.get(cr)
+                if not child_id:
+                    continue
+                relationships.append({
+                    "spdxElementId": parent_id,
+                    "relationshipType": "DEPENDS_ON",
+                    "relatedSpdxElement": child_id
+                })
+
+        # Merge file relationships
+        relationships.extend(file_relationships)
+
+        # Compose document
+        doc = {
+            "spdxVersion": "SPDX-3.0",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": doc_spdxid,
+            "name": f"binsbom-{uuid.uuid4()}",
+            "documentNamespace": f"urn:uuid:{uuid.uuid4()}",
+            "creationInfo": {
+                "created": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "creators": ["Tool: binsbom-starter/0.1.2"]
+            },
+            "packages": packages,
+            "files": files,
+            "relationships": relationships
+        }
+        return json.dumps(doc, indent=2)
+    
