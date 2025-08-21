@@ -8,6 +8,7 @@ from .detectors.java import detect_java_component
 from .detectors.elf import detect_elf_component
 from .detectors.pe import detect_pe_component
 from .detectors.macho import detect_macho_component
+from .detectors.go import enrich_with_go_modules
 
 
 @dataclass
@@ -61,21 +62,25 @@ class Scanner:
         if ftype == FileType.JAVA_ARCHIVE:
             jf = detect_java_component(p, **common)
             if jf:
+                enrich_with_go_modules(jf, p)
                 findings.append(jf)
 
         elif ftype == FileType.ELF:
             ef = detect_elf_component(p, **common)
             if ef:
+                enrich_with_go_modules(ef, p)
                 findings.append(ef)
 
         elif ftype == FileType.PE:
             pf = detect_pe_component(p, **common)
             if pf:
+                enrich_with_go_modules(pf, p)
                 findings.append(pf)
 
         elif ftype == FileType.MACHO:
             mf = detect_macho_component(p, **common)
             if mf:
+                enrich_with_go_modules(mf, p)
                 findings.append(mf)
 
         else:

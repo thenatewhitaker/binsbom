@@ -50,3 +50,9 @@ binsbom scan /path/to/dir --out sbom.json --format cyclonedx-json
 - The Mach-O detector uses **LIEF** to parse `LC_LOAD_DYLIB` and `LC_ID_DYLIB`.
 - It maps common libraries (OpenSSL, zlib, curl, sqlite, libpng, libjpeg, Qt) to **purl** identifiers.
 - Dependencies are added to the CycloneDX SBOM as components with bom-refs and purls.
+
+
+## Go build-info enrichment
+- Scans binaries for embedded Go module strings (similar to `go version -m` output).
+- Adds each module as a dependency with purl `pkg:golang/<module>@<version>`.
+- Stores light evidence under `go_build_info` (main module path and count).
