@@ -3,6 +3,7 @@ from __future__ import annotations
 import json, datetime, uuid, hashlib
 from typing import List, Dict, Any, Tuple
 from .scanner import ComponentFinding
+from .detectors.license import detect_licenses_for_path
 
 def _bomref_for_file(path: str, sha256: str) -> str:
     return f"urn:sha256:{sha256}"
@@ -124,7 +125,64 @@ class BomWriter:
             bom["dependencies"].append({"ref": parent_ref, "dependsOn": child_refs})
         return json.dumps(bom, indent=2)
 
-    def _write_spdx(self, findings: List[ComponentFinding], root: str) -> str:
+    
+
+def _spdx_filetype_for_name(name: str) -> str:
+    lower = name.lower()
+    # Simple extension-based classification
+    source_exts = (".c",".cc",".cpp",".cxx",".h",".hpp",".hh",".m",".mm",".swift",".rs",".go",".py",".rb",".js",".ts",".java",".cs",".kt",".scala",".php",".hs",".cob",".mli",".ml",".clj",".lua",".r",".sh",".ps1")
+    text_exts = (".md",".txt",".rst",".cfg",".ini",".yml",".yaml",".json",".xml",".toml",".csv",".tsv",".properties",".gradle",".pom",".license",".notice")
+    binary_exts = (".class",".o",".a",".so",".dylib",".dll",".bin",".dat",".jar",".zip",".7z",".gz",".xz",".lz",".bz2",".png",".jpg",".jpeg",".gif",".bmp",".pdf")
+    if any(lower.endswith(ext) for ext in source_exts):
+        return "SOURCE"
+    if any(lower.endswith(ext) for ext in text_exts):
+        return "TEXT"
+    if any(lower.endswith(ext) for ext in binary_exts):
+        return "BINARY"
+    # default
+    return "TEXT"
+
+def _enumerate_archive_files(archive_path: str, limit: int = 5000) -> list[dict]:
+    """
+    Enumerate files inside a ZIP/JAR for SPDX 'files' section.
+    Returns a list of dicts with keys: name, type, sha256 (None if unavailable).
+    """
+    import zipfile, io, hashlib, os
+    files = []
+    p = pathlib.Path(archive_path)
+    if not p.is_file():
+        return files
+    try:
+        with p.open("rb") as fh:
+            sig = fh.read(4)
+        if sig != b"PK\x03\x04":
+            return files
+    except Exception:
+        return files
+
+    try:
+        with zipfile.ZipFile(p, "r") as z:
+            for i, n in enumerate(z.namelist()):
+                if i >= limit:
+                    break
+                if n.endswith("/"):
+                    continue
+                try:
+                    ftype = _spdx_filetype_for_name(n)
+                    sha256 = None
+                    # Hash small files (<1MB) to avoid heavy cost
+                    info = z.getinfo(n)
+                    if info.file_size <= 1_000_000:
+                        with z.open(n, "r") as f:
+                            data = f.read()
+                            sha256 = hashlib.sha256(data).hexdigest()
+                    files.append({"name": n, "type": ftype, "sha256": sha256})
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return files
+def _write_spdx(self, findings: List[ComponentFinding], root: str) -> str:
         """
         SPDX 3.0-ish JSON writer (packages, files, relationships).
         - Generates SPDXRef IDs deterministically from SHA-256 where possible.
@@ -148,6 +206,8 @@ class BomWriter:
 
         # Build packages / map bom_ref -> pkg SPDXID
         packages = []
+        # map bom_ref -> finding for extra context
+        _finding_by_ref = { (f.bom_ref or f"urn:sha256:{f.hashes.get('SHA-256','')}") : f for f in findings }
         pkg_id_map = {}
         for ref, c in comps.items():
             pid = pkg_spdxid(c["name"], c["version"], bom_ref=ref)
@@ -175,10 +235,32 @@ class BomWriter:
                     checks.append({"algorithm": "SHA256", "checksumValue": h["content"]})
             if checks:
                 pkg["checksums"] = checks
+            # License detection
+            try:
+                fctx = _finding_by_ref.get(ref)
+                if fctx and fctx.path:
+                    lic_list = detect_licenses_for_path(pathlib.Path(fctx.path))
+                    if lic_list:
+                        # Pick first concrete SPDX id if available
+                        first = next((l for l in lic_list if l.get('spdx_id') and l['spdx_id'] != 'NOASSERTION'), None)
+                        if first:
+                            pkg['licenseDeclared'] = first['spdx_id']
+                        # stash evidence to be added as files later
+                        pkg.setdefault('_license_files', lic_list)
+            except Exception:
+                pass
             packages.append(pkg)
 
         # Build files for each real scanned file (only from findings)
         files = []
+        # convenience to add a file record
+        def _add_file_record(path: str, ftype: str, sha256: str | None) -> str:
+            fid = f"SPDXRef-File-{(sha256 or hashlib.sha256(path.encode('utf-8')).hexdigest())[:16]}"
+            entry = {"SPDXID": fid, "fileName": path, "fileTypes": [ftype], "checksums": []}
+            if sha256:
+                entry["checksums"].append({"algorithm": "SHA256", "checksumValue": sha256})
+            files.append(entry)
+            return fid
         file_relationships = []
         for f in findings:
             sha256 = f.hashes.get("SHA-256", "")
@@ -206,7 +288,37 @@ class BomWriter:
                     "relatedSpdxElement": fid
                 })
 
-        # Relationships: DOCUMENT DESCRIBES each top-level package (the "root" findings)
+
+        # Add inner files for archives and license files as text files
+        for ref, c in comps.items():
+            # Add archive inner files
+            fctx = _finding_by_ref.get(ref)
+            if fctx and fctx.path:
+                inner = _enumerate_archive_files(fctx.path)
+                if inner:
+                    pkg_id = pkg_id_map.get(ref)
+                    for item in inner:
+                        fid = _add_file_record(f"{fctx.path}!/{item['name']}", item["type"], item["sha256"])
+                        if pkg_id:
+                            file_relationships.append({
+                                "spdxElementId": pkg_id,
+                                "relationshipType": "CONTAINS",
+                                "relatedSpdxElement": fid
+                            })
+            # Add license files collected earlier
+            # We stored them transiently in the package dict as _license_files
+            for pkg in packages:
+                if pkg_id_map.get(ref) == pkg.get("SPDXID") and pkg.get("_license_files"):
+                    for lic in pkg["_license_files"]:
+                        fid = _add_file_record(lic["path"], "TEXT", None)
+                        file_relationships.append({
+                            "spdxElementId": pkg["SPDXID"],
+                            "relationshipType": "CONTAINS",
+                            "relatedSpdxElement": fid
+                        })
+                    # cleanup
+                    del pkg["_license_files"]
+            # Relationships: DOCUMENT DESCRIBES each top-level package (the "root" findings)
         relationships = []
         doc_spdxid = "SPDXRef-DOCUMENT"
 
