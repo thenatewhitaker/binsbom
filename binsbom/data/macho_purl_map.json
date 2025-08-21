@@ -1,0 +1,35 @@
+{
+  "libc++.1.dylib": {
+    "purl": "pkg:generic/llvm/libc++@1"
+  },
+  "libz.1.dylib": {
+    "purl": "pkg:generic/zlib@1"
+  },
+  "libcurl.4.dylib": {
+    "purl": "pkg:generic/curl@7"
+  },
+  "libpng16.16.dylib": {
+    "purl": "pkg:generic/libpng@1.6"
+  },
+  "libjpeg.8.dylib": {
+    "purl": "pkg:generic/libjpeg@8"
+  },
+  "libjpeg-turbo.2.dylib": {
+    "purl": "pkg:generic/libjpeg-turbo@2"
+  },
+  "libssl.3.dylib": {
+    "purl": "pkg:generic/openssl/libssl@3"
+  },
+  "libcrypto.3.dylib": {
+    "purl": "pkg:generic/openssl/libcrypto@3"
+  },
+  "libssl.1.1.dylib": {
+    "purl": "pkg:generic/openssl/libssl@1.1"
+  },
+  "libcrypto.1.1.dylib": {
+    "purl": "pkg:generic/openssl/libcrypto@1.1"
+  },
+  "libsystem.b.dylib": {
+    "purl": "pkg:generic/apple/libsystem.b"
+  }
+}
