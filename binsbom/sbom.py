@@ -1,8 +1,16 @@
 
 from __future__ import annotations
 import json, datetime, uuid
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from .scanner import ComponentFinding
+
+def _bomref_for_file(path: str, sha256: str) -> str:
+    return f"urn:sha256:{sha256}"
+
+def _bomref_for_dep(name: str, version: str | None) -> str:
+    key = f"{name}@{version}" if version else name
+    ns = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    return f"urn:uuid:{uuid.uuid5(ns, key)}"
 
 class BomWriter:
     def __init__(self, format: str = "cyclonedx-json") -> None:
@@ -12,63 +20,81 @@ class BomWriter:
         if self.format == "cyclonedx-json":
             try:
                 return self._write_cdx(findings, root)
-            except Exception as e:
-                # Fallback to a tiny hand-rolled JSON if cyclonedx lib isn't available
+            except Exception:
                 return self._write_cdx_min(findings, root)
         else:
             raise ValueError(f"Unsupported format: {self.format}")
 
-    def _write_cdx(self, findings: List[ComponentFinding], root: str) -> str:
-        # Prefer modern cyclonedx-python-lib API (v6+)
-        try:
-            from cyclonedx.model.bom import Bom
-            from cyclonedx.model.component import Component, ComponentType, HashAlgorithm, HashType
-            from cyclonedx.model import ExternalReference, ExternalReferenceType
-            from cyclonedx.output import make_outputter, OutputFormat
-        except Exception as e:
-            raise
+    def _collect_components_and_deps(self, findings: List[ComponentFinding]) -> tuple[dict, list[tuple[str, list[str]]]]:
+        comps: Dict[str, Dict[str, Any]] = {}
+        deps_edges: List[Tuple[str, List[str]]] = []
 
-        bom = Bom()
-        bom.metadata.component = None  # we treat as a "document" of components
-
-        # Add components
         for f in findings:
-            ctype = ComponentType.LIBRARY if f.type == "library" else ComponentType.APPLICATION if f.type == "application" else ComponentType.FILE
-            comp = Component(
-                name=f.name,
-                version=f.version or None,
-                type=ctype,
-                purl=f.purl or None,
-                # bom_ref can be set, but library will generate if omitted
-            )
-            # Hashes
-            try:
-                from cyclonedx.model import HashAlgorithm as HAlg, Hash as Ht
-                # Newer API uses different types; to stay broadly compatible, fallback to older if needed
-                pass
-            except Exception:
-                pass
+            bom_ref = _bomref_for_file(f.path or f.name, f.hashes.get("SHA-256", ""))
+            f.bom_ref = bom_ref
+            comp = {
+                "name": f.name,
+                "version": f.version,
+                "type": f.type,
+                "purl": f.purl,
+                "hashes": [{"alg": k, "content": v} for k, v in f.hashes.items()]
+            }
+            comps.setdefault(bom_ref, comp)
 
-            # Hashes using legacy API object (works on v4/v5/v6 via HashType)
-            from cyclonedx.model.component import HashType
-            from cyclonedx.model.component import HashAlgorithm as HAlgLegacy
-            if f.hashes.get("SHA-256"):
-                comp.hashes = [HashType(alg=HAlgLegacy.SHA_256, content=f.hashes["SHA-256"])]
+        for f in findings:
+            parent = f.bom_ref or _bomref_for_file(f.path or f.name, f.hashes.get("SHA-256", ""))
+            children_refs: List[str] = []
+            deps = (f.evidence or {}).get("dependencies") or []
+            for d in deps:
+                dname = d.get("name")
+                dver = d.get("version")
+                if not dname:
+                    continue
+                child_ref = _bomref_for_dep(dname, dver)
+                if child_ref not in comps:
+                    comps[child_ref] = {
+                        "name": dname,
+                        "version": dver,
+                        "type": "library",
+                        "purl": d.get("purl"),
+                        "hashes": []
+                    }
+                children_refs.append(child_ref)
+            if children_refs:
+                deps_edges.append((parent, children_refs))
 
-            # supplier (if any) as an external reference
-            if f.supplier:
-                try:
-                    comp.external_references = [ExternalReference(type=ExternalReferenceType.VCS, url=f"about:{f.supplier}")]
-                except Exception:
-                    pass
+        return comps, deps_edges
 
+    def _write_cdx(self, findings: List[ComponentFinding], root: str) -> str:
+        from cyclonedx.model.bom import Bom
+        from cyclonedx.model.component import Component, ComponentType, HashType
+        from cyclonedx.model.component import HashAlgorithm as HAlgLegacy
+        from cyclonedx.model.dependency import Dependency
+        from cyclonedx.output import make_outputter, OutputFormat
+
+        comps, deps_edges = self._collect_components_and_deps(findings)
+        bom = Bom()
+        bom.metadata.component = None
+
+        for ref, c in comps.items():
+            ctype = ComponentType.LIBRARY if c["type"] == "library" else ComponentType.APPLICATION if c["type"] == "application" else ComponentType.FILE
+            comp = Component(name=c["name"], version=c["version"], type=ctype, bom_ref=ref, purl=c.get("purl"))
+            hashes = []
+            for h in c.get("hashes", []):
+                if h.get("alg") == "SHA-256":
+                    hashes.append(HashType(alg=HAlgLegacy.SHA_256, content=h.get("content", "")))
+            if hashes:
+                comp.hashes = hashes
             bom.components.add(comp)
 
-        out = make_outputter(bom, OutputFormat.JSON).output_as_string()
-        return out
+        for parent_ref, child_refs in deps_edges:
+            d = Dependency(ref=parent_ref, depends_on=child_refs)
+            bom.dependencies.add(d)
+
+        return make_outputter(bom, OutputFormat.JSON).output_as_string()
 
     def _write_cdx_min(self, findings: List[ComponentFinding], root: str) -> str:
-        # Minimal CycloneDX-like structure (not full spec-compliant; use only as fallback)
+        comps, deps_edges = self._collect_components_and_deps(findings)
         bom = {
             "bomFormat": "CycloneDX",
             "specVersion": "1.4",
@@ -76,19 +102,22 @@ class BomWriter:
             "version": 1,
             "metadata": {
                 "timestamp": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-                "tools": [{"vendor": "binsbom", "name": "binsbom-starter", "version": "0.1.0"}],
+                "tools": [{"vendor": "binsbom", "name": "binsbom-starter", "version": "0.1.1"}],
                 "component": None
             },
-            "components": []
+            "components": [],
+            "dependencies": []
         }
-        for f in findings:
-            ctype = "library" if f.type == "library" else "application" if f.type == "application" else "file"
-            comp = {
-                "type": ctype,
-                "name": f.name,
-                "version": f.version,
-                "purl": f.purl,
-                "hashes": [{"alg": k, "content": v} for k, v in f.hashes.items()]
+        for ref, c in comps.items():
+            item = {
+                "bom-ref": ref,
+                "type": c["type"],
+                "name": c["name"],
+                "version": c["version"],
+                "purl": c.get("purl"),
+                "hashes": c.get("hashes", [])
             }
-            bom["components"].append(comp)
+            bom["components"].append(item)
+        for parent_ref, child_refs in deps_edges:
+            bom["dependencies"].append({"ref": parent_ref, "dependsOn": child_refs})
         return json.dumps(bom, indent=2)
