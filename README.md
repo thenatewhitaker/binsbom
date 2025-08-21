@@ -70,3 +70,12 @@ binsbom scan /path/to/dir --out sbom.json --format cyclonedx-json
   - Attempts a simple SPDX ID classification (Apache-2.0, MIT, BSD-2/3, GPL/LGPL, MPL-2.0)
   - Enumerates files inside ZIP/JAR and adds them to the SPDX `files` section
     - Classifies files as SOURCE/TEXT/BINARY by extension
+
+
+## Validation
+- Use `--validate` to run a post-generation check:
+  - If `jsonschema` is installed, validates against a **minimal** bundled schema:
+    - SPDX: `binsbom/data/spdx-3.0.schema.min.json`
+    - CycloneDX: `binsbom/data/cyclonedx-1.4.schema.min.json`
+  - Otherwise, runs lightweight structural checks.
+- Install: `pip install jsonschema`
