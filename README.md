@@ -62,3 +62,11 @@ binsbom scan /path/to/dir --out sbom.json --format cyclonedx-json
 - Emit an SPDX document with **packages**, **files**, and **relationships** (DESCRIBES, DEPENDS_ON, CONTAINS).
 - Usage: `binsbom scan <path> --format spdx-json -o sbom.spdx.json`
 - Notes: IDs are deterministic from content where possible; `purl` appears in `externalRefs`.
+
+
+## License detection & source enumeration
+- The SPDX writer now:
+  - Detects LICENSE/NOTICE files next to binaries and inside ZIP/JAR archives
+  - Attempts a simple SPDX ID classification (Apache-2.0, MIT, BSD-2/3, GPL/LGPL, MPL-2.0)
+  - Enumerates files inside ZIP/JAR and adds them to the SPDX `files` section
+    - Classifies files as SOURCE/TEXT/BINARY by extension
